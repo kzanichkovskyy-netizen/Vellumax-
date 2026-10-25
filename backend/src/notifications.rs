@@ -13,6 +13,7 @@ use crate::error::{AppError, AppResult};
 pub struct Notification {
     id: Uuid,
     #[serde(rename = "type")]
+    #[sqlx(rename = "type")]
     ntype: String,
     payload: serde_json::Value,
     read_at: Option<DateTime<Utc>>,

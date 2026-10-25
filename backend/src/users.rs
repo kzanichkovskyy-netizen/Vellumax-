@@ -22,11 +22,13 @@ pub struct UserView {
     pub phone: Option<String>,
     pub avatar_url: Option<String>,
     pub is_active: bool,
+    pub birth_date: Option<chrono::NaiveDate>,
+    pub address: Option<String>,
+    pub custom_fields: serde_json::Value,
     pub created_at: DateTime<Utc>,
 }
 
-const USER_COLS: &str =
-    "id, school_id, email, role, first_name, last_name, phone, avatar_url, is_active, created_at";
+const USER_COLS: &str = "id, school_id, email, role, first_name, last_name, phone, avatar_url, is_active, birth_date, address, custom_fields, created_at";
 
 #[derive(Deserialize, Validate)]
 pub struct CreateUser {
@@ -41,6 +43,9 @@ pub struct CreateUser {
     last_name: String,
     phone: Option<String>,
     school_id: Option<Uuid>,
+    birth_date: Option<chrono::NaiveDate>,
+    address: Option<String>,
+    custom_fields: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Validate)]
@@ -53,6 +58,9 @@ pub struct UpdateUser {
     phone: Option<String>,
     avatar_url: Option<String>,
     is_active: Option<bool>,
+    birth_date: Option<chrono::NaiveDate>,
+    address: Option<String>,
+    custom_fields: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Validate)]
@@ -106,8 +114,8 @@ async fn create(
     };
 
     let user = sqlx::query_as::<_, UserView>(sqlx::AssertSqlSafe(format!(
-        "INSERT INTO users (id, school_id, email, password_hash, role, first_name, last_name, phone)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING {USER_COLS}"
+        "INSERT INTO users (id, school_id, email, password_hash, role, first_name, last_name, phone, birth_date, address, custom_fields)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11,'{{}}')) RETURNING {USER_COLS}"
     )))
     .bind(Uuid::new_v4())
     .bind(school_id)
@@ -117,6 +125,9 @@ async fn create(
     .bind(&body.first_name)
     .bind(&body.last_name)
     .bind(&body.phone)
+    .bind(body.birth_date)
+    .bind(&body.address)
+    .bind(&body.custom_fields)
     .fetch_one(&state.db)
     .await?;
     Ok(Json(user))
@@ -215,7 +226,10 @@ async fn update(
             last_name = COALESCE($5, last_name),
             phone = COALESCE($6, phone),
             avatar_url = COALESCE($7, avatar_url),
-            is_active = COALESCE($8, is_active)
+            is_active = COALESCE($8, is_active),
+            birth_date = COALESCE($9, birth_date),
+            address = COALESCE($10, address),
+            custom_fields = COALESCE($11, custom_fields)
          WHERE id = $1 RETURNING {USER_COLS}"
     )))
     .bind(id)
@@ -226,6 +240,9 @@ async fn update(
     .bind(&body.phone)
     .bind(&body.avatar_url)
     .bind(body.is_active)
+    .bind(body.birth_date)
+    .bind(&body.address)
+    .bind(&body.custom_fields)
     .fetch_one(&state.db)
     .await?;
     Ok(Json(user))

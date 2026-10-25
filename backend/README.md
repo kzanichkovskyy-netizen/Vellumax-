@@ -37,7 +37,7 @@ TEST_DATABASE_URL=postgres://classnode:classnode@localhost:5432/classnode cargo 
 | `auth` | `login`, `refresh`, `logout`, `me` |
 | `schools` | CRUD (superadmin), `PATCH /:id` — налаштування + шкала оцінок |
 | `users` | CRUD, `PATCH /me`, `/{id}/children` (parent links) |
-| `classes` | CRUD, `/{id}/students`, `/{id}/subjects` (призначення вчителів) |
+| `classes` | CRUD (+`type` class/club, `location_id`), `/{id}/students`, `/{id}/subjects`, `/{id}/subgroups` |
 | `subjects` | CRUD |
 | `schedule` | `timetable` (slots, `me`), `lessons` (+`generate`) |
 | `homework` | assignments, `/{id}/submit`, `/{id}/submissions`, grade |
@@ -46,6 +46,19 @@ TEST_DATABASE_URL=postgres://classnode:classnode@localhost:5432/classnode cargo 
 | `announcements` | CRUD, audience: school/class/role |
 | `messages` | send, conversations, `with/{id}`, mark read |
 | `notifications` | list, unread-count, read, read-all |
+| `finance` | charges, payments, debts, summary |
+| `meals` | menus, orders, cancel |
+| `quizzes` | quiz+questions CRUD, publish, submit (auto-score), attempts |
+| `rewards` | give points, student balance/history, class leaderboard |
+| `events` | school calendar, audience school/class/staff |
+| `polls` | опитування: create, vote, results |
+| `tasks` | staff tasks: create, list, status |
+| `pickups` | "покликати дитину": parent call, done |
+| `documents` | doc upload/list/download per user |
+| `locations` | school locations CRUD |
+| `transport` | routes + student assignment (довезення) |
+| `leads` | CRM: prospective clients, statuses |
+| `analytics` | attendance %, teacher-load, grade stats, report-card, journal.csv |
 
 ## Ролі
 

@@ -20,12 +20,16 @@ pub struct ClassView {
     grade_level: i32,
     homeroom_teacher_id: Option<Uuid>,
     year: i32,
+    #[serde(rename = "type")]
+    #[sqlx(rename = "type")]
+    class_type: String,
+    location_id: Option<Uuid>,
     created_at: DateTime<Utc>,
 }
 
-const CLASS_COLS: &str = "id, school_id, name, grade_level, homeroom_teacher_id, year, created_at";
-const CLASS_COLS_C: &str =
-    "c.id, c.school_id, c.name, c.grade_level, c.homeroom_teacher_id, c.year, c.created_at";
+const CLASS_COLS: &str =
+    "id, school_id, name, grade_level, homeroom_teacher_id, year, type, location_id, created_at";
+const CLASS_COLS_C: &str = "c.id, c.school_id, c.name, c.grade_level, c.homeroom_teacher_id, c.year, c.type, c.location_id, c.created_at";
 
 #[derive(Deserialize, Validate)]
 pub struct CreateClass {
@@ -34,6 +38,10 @@ pub struct CreateClass {
     grade_level: i32,
     year: i32,
     homeroom_teacher_id: Option<Uuid>,
+    /// 'class' (default) or 'club' (гурток)
+    #[serde(rename = "type")]
+    class_type: Option<String>,
+    location_id: Option<Uuid>,
 }
 
 #[derive(Deserialize, Validate)]
@@ -43,6 +51,7 @@ pub struct UpdateClass {
     grade_level: Option<i32>,
     year: Option<i32>,
     homeroom_teacher_id: Option<Uuid>,
+    location_id: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -112,9 +121,15 @@ async fn create(
 ) -> AppResult<Json<ClassView>> {
     auth.require(&[Role::Superadmin, Role::Admin])?;
     body.validate()?;
+    let ctype = body.class_type.as_deref().unwrap_or("class");
+    if !["class", "club"].contains(&ctype) {
+        return Err(AppError::BadRequest(
+            "type must be 'class' or 'club'".into(),
+        ));
+    }
     let class = sqlx::query_as::<_, ClassView>(sqlx::AssertSqlSafe(format!(
-        "INSERT INTO classes (id, school_id, name, grade_level, year, homeroom_teacher_id)
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING {CLASS_COLS}"
+        "INSERT INTO classes (id, school_id, name, grade_level, year, homeroom_teacher_id, type, location_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING {CLASS_COLS}"
     )))
     .bind(Uuid::new_v4())
     .bind(auth.school()?)
@@ -122,6 +137,8 @@ async fn create(
     .bind(body.grade_level)
     .bind(body.year)
     .bind(body.homeroom_teacher_id)
+    .bind(ctype)
+    .bind(body.location_id)
     .fetch_one(&state.db)
     .await?;
     Ok(Json(class))
@@ -210,8 +227,9 @@ async fn update(
             name = COALESCE($2, name),
             grade_level = COALESCE($3, grade_level),
             year = COALESCE($4, year),
-            homeroom_teacher_id = COALESCE($5, homeroom_teacher_id)
-         WHERE id = $1 AND school_id = $6
+            homeroom_teacher_id = COALESCE($5, homeroom_teacher_id),
+            location_id = COALESCE($6, location_id)
+         WHERE id = $1 AND school_id = $7
          RETURNING {CLASS_COLS}"
     )))
     .bind(id)
@@ -219,6 +237,7 @@ async fn update(
     .bind(body.grade_level)
     .bind(body.year)
     .bind(body.homeroom_teacher_id)
+    .bind(body.location_id)
     .bind(auth.school()?)
     .fetch_optional(&state.db)
     .await?
@@ -302,7 +321,7 @@ async fn students(
     can_view_class(&state, &auth, id).await?;
     let students = sqlx::query_as::<_, UserView>(
         "SELECT u.id, u.school_id, u.email, u.role, u.first_name, u.last_name, u.phone,
-                u.avatar_url, u.is_active, u.created_at
+                u.avatar_url, u.is_active, u.created_at, u.birth_date, u.address, u.custom_fields
          FROM users u JOIN enrollments e ON e.student_id = u.id
          WHERE e.class_id = $1 ORDER BY u.last_name",
     )
@@ -404,6 +423,159 @@ async fn class_subjects(
     Ok(Json(rows))
 }
 
+// ---- subgroups ----
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct Subgroup {
+    id: Uuid,
+    class_id: Uuid,
+    subject_id: Option<Uuid>,
+    name: String,
+}
+
+#[derive(Deserialize, Validate)]
+pub struct CreateSubgroup {
+    #[validate(length(min = 1, max = 100))]
+    name: String,
+    subject_id: Option<Uuid>,
+}
+
+async fn create_subgroup(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<CreateSubgroup>,
+) -> AppResult<Json<Subgroup>> {
+    auth.require(&[Role::Superadmin, Role::Admin, Role::Teacher])?;
+    body.validate()?;
+    let g = sqlx::query_as::<_, Subgroup>(
+        "INSERT INTO subgroups (id, class_id, subject_id, name)
+         SELECT $1, c.id, $3, $4 FROM classes c
+         WHERE c.id = $2 AND c.school_id = $5
+         RETURNING id, class_id, subject_id, name",
+    )
+    .bind(Uuid::new_v4())
+    .bind(id)
+    .bind(body.subject_id)
+    .bind(&body.name)
+    .bind(auth.school()?)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+    Ok(Json(g))
+}
+
+async fn list_subgroups(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Vec<Subgroup>>> {
+    can_view_class(&state, &auth, id).await?;
+    let rows = sqlx::query_as::<_, Subgroup>(
+        "SELECT id, class_id, subject_id, name FROM subgroups WHERE class_id = $1 ORDER BY name",
+    )
+    .bind(id)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+async fn delete_subgroup(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path((id, subgroup_id)): Path<(Uuid, Uuid)>,
+) -> AppResult<axum::http::StatusCode> {
+    auth.require(&[Role::Superadmin, Role::Admin, Role::Teacher])?;
+    let res = sqlx::query(
+        "DELETE FROM subgroups WHERE id = $1 AND class_id = $2
+         AND EXISTS(SELECT 1 FROM classes c WHERE c.id = $2 AND c.school_id = $3)",
+    )
+    .bind(subgroup_id)
+    .bind(id)
+    .bind(auth.school()?)
+    .execute(&state.db)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct SubgroupEnroll {
+    student_id: Uuid,
+}
+
+async fn subgroup_add_student(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path((id, subgroup_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<SubgroupEnroll>,
+) -> AppResult<axum::http::StatusCode> {
+    auth.require(&[Role::Superadmin, Role::Admin, Role::Teacher])?;
+    // student must be enrolled in the parent class
+    let ok: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM subgroups sg
+            JOIN enrollments e ON e.class_id = sg.class_id
+            JOIN classes c ON c.id = sg.class_id
+            WHERE sg.id = $1 AND sg.class_id = $2 AND e.student_id = $3 AND c.school_id = $4)",
+    )
+    .bind(subgroup_id)
+    .bind(id)
+    .bind(body.student_id)
+    .bind(auth.school()?)
+    .fetch_one(&state.db)
+    .await?;
+    if !ok {
+        return Err(AppError::BadRequest(
+            "student not enrolled in this class".into(),
+        ));
+    }
+    sqlx::query(
+        "INSERT INTO subgroup_students (subgroup_id, student_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+    )
+    .bind(subgroup_id)
+    .bind(body.student_id)
+    .execute(&state.db)
+    .await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+async fn subgroup_remove_student(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path((id, subgroup_id, student_id)): Path<(Uuid, Uuid, Uuid)>,
+) -> AppResult<axum::http::StatusCode> {
+    let _ = id;
+    auth.require(&[Role::Superadmin, Role::Admin, Role::Teacher])?;
+    sqlx::query("DELETE FROM subgroup_students WHERE subgroup_id = $1 AND student_id = $2")
+        .bind(subgroup_id)
+        .bind(student_id)
+        .execute(&state.db)
+        .await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+async fn subgroup_students(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path((id, subgroup_id)): Path<(Uuid, Uuid)>,
+) -> AppResult<Json<Vec<UserView>>> {
+    can_view_class(&state, &auth, id).await?;
+    let rows = sqlx::query_as::<_, UserView>(
+        "SELECT u.id, u.school_id, u.email, u.role, u.first_name, u.last_name, u.phone,
+                u.avatar_url, u.is_active, u.created_at, u.birth_date, u.address, u.custom_fields
+         FROM users u
+         JOIN subgroup_students ss ON ss.student_id = u.id
+         WHERE ss.subgroup_id = $1 ORDER BY u.last_name",
+    )
+    .bind(subgroup_id)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list).post(create))
@@ -417,5 +589,18 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{id}/subjects/{subject_id}",
             axum::routing::delete(unassign_subject),
+        )
+        .route("/{id}/subgroups", get(list_subgroups).post(create_subgroup))
+        .route(
+            "/{id}/subgroups/{subgroup_id}",
+            axum::routing::delete(delete_subgroup),
+        )
+        .route(
+            "/{id}/subgroups/{subgroup_id}/students",
+            get(subgroup_students).post(subgroup_add_student),
+        )
+        .route(
+            "/{id}/subgroups/{subgroup_id}/students/{student_id}",
+            axum::routing::delete(subgroup_remove_student),
         )
 }

@@ -1,17 +1,30 @@
+pub mod analytics;
 pub mod announcements;
 pub mod auth;
 pub mod classes;
 pub mod config;
 pub mod db;
+pub mod documents;
 pub mod error;
+pub mod events;
+pub mod finance;
 pub mod homework;
 pub mod journal;
+pub mod leads;
+pub mod locations;
 pub mod materials;
+pub mod meals;
 pub mod messages;
 pub mod notifications;
+pub mod pickups;
+pub mod polls;
+pub mod quizzes;
+pub mod rewards;
 pub mod schedule;
 pub mod schools;
 pub mod subjects;
+pub mod tasks;
+pub mod transport;
 pub mod types;
 pub mod users;
 
@@ -45,7 +58,20 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/materials", materials::router())
         .nest("/announcements", announcements::router())
         .nest("/messages", messages::router())
-        .nest("/notifications", notifications::router());
+        .nest("/notifications", notifications::router())
+        .nest("/finance", finance::router())
+        .nest("/meals", meals::router())
+        .nest("/quizzes", quizzes::router())
+        .nest("/rewards", rewards::router())
+        .nest("/events", events::router())
+        .nest("/polls", polls::router())
+        .nest("/tasks", tasks::router())
+        .nest("/pickups", pickups::router())
+        .nest("/documents", documents::router())
+        .nest("/locations", locations::router())
+        .nest("/transport", transport::router())
+        .nest("/leads", leads::router())
+        .nest("/analytics", analytics::router());
 
     Router::new()
         .nest("/api/v1", api)

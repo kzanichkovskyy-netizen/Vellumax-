@@ -375,6 +375,103 @@ async fn update_lesson(
     Ok(Json(lesson))
 }
 
+// ---------- substitutions (заміни) ----------
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct Substitution {
+    lesson_id: Uuid,
+    substitute_teacher_id: Uuid,
+    reason: Option<String>,
+    created_at: DateTime<Utc>,
+}
+
+#[derive(Deserialize)]
+pub struct Substitute {
+    teacher_id: Uuid,
+    reason: Option<String>,
+}
+
+async fn substitute(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<Substitute>,
+) -> AppResult<Json<Substitution>> {
+    auth.require(&[Role::Superadmin, Role::Admin])?;
+    let sid = auth.school()?;
+    let ok: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM lessons l, users t
+            WHERE l.id = $1 AND t.id = $2 AND t.role = 'teacher'
+              AND l.school_id = $3 AND t.school_id = $3)",
+    )
+    .bind(id)
+    .bind(body.teacher_id)
+    .bind(sid)
+    .fetch_one(&state.db)
+    .await?;
+    if !ok {
+        return Err(AppError::BadRequest("lesson or teacher not found".into()));
+    }
+    let s = sqlx::query_as::<_, Substitution>(
+        "INSERT INTO substitutions (lesson_id, substitute_teacher_id, reason, created_by)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (lesson_id) DO UPDATE SET
+            substitute_teacher_id = EXCLUDED.substitute_teacher_id, reason = EXCLUDED.reason
+         RETURNING lesson_id, substitute_teacher_id, reason, created_at",
+    )
+    .bind(id)
+    .bind(body.teacher_id)
+    .bind(&body.reason)
+    .bind(auth.id)
+    .fetch_one(&state.db)
+    .await?;
+    crate::notifications::notify(
+        &state,
+        body.teacher_id,
+        "substitution",
+        serde_json::json!({ "lesson_id": id }),
+    )
+    .await;
+    Ok(Json(s))
+}
+
+async fn get_substitute(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Substitution>> {
+    let s = sqlx::query_as::<_, Substitution>(
+        "SELECT s.lesson_id, s.substitute_teacher_id, s.reason, s.created_at
+         FROM substitutions s JOIN lessons l ON l.id = s.lesson_id
+         WHERE s.lesson_id = $1 AND (l.school_id = $2 OR $3)",
+    )
+    .bind(id)
+    .bind(auth.school_id)
+    .bind(auth.role == Role::Superadmin)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+    Ok(Json(s))
+}
+
+async fn delete_substitute(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> AppResult<axum::http::StatusCode> {
+    auth.require(&[Role::Superadmin, Role::Admin])?;
+    sqlx::query(
+        "DELETE FROM substitutions WHERE lesson_id = $1
+         AND EXISTS(SELECT 1 FROM lessons l WHERE l.id = $1 AND l.school_id = $2)",
+    )
+    .bind(id)
+    .bind(auth.school()?)
+    .execute(&state.db)
+    .await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/timetable", get(timetable).post(create_slot))
@@ -383,4 +480,10 @@ pub fn router() -> Router<AppState> {
         .route("/lessons", get(list_lessons).post(create_lesson))
         .route("/lessons/generate", axum::routing::post(generate_lessons))
         .route("/lessons/{id}", axum::routing::patch(update_lesson))
+        .route(
+            "/lessons/{id}/substitute",
+            get(get_substitute)
+                .post(substitute)
+                .delete(delete_substitute),
+        )
 }
