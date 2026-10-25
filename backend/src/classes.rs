@@ -52,7 +52,7 @@ pub struct Enroll {
 }
 
 /// Whether the caller may view this class (membership-aware).
-async fn can_view_class(
+pub(crate) async fn can_view_class(
     state: &AppState,
     auth: &AuthUser,
     class_id: Uuid,

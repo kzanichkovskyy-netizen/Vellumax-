@@ -3,6 +3,9 @@ pub mod classes;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod homework;
+pub mod journal;
+pub mod schedule;
 pub mod schools;
 pub mod subjects;
 pub mod types;
@@ -31,7 +34,10 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/users", users::router())
         .nest("/schools", schools::router())
         .nest("/classes", classes::router())
-        .nest("/subjects", subjects::router());
+        .nest("/subjects", subjects::router())
+        .nest("/schedule", schedule::router())
+        .nest("/homework", homework::router())
+        .nest("/journal", journal::router());
 
     Router::new()
         .nest("/api/v1", api)
