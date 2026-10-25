@@ -39,6 +39,7 @@ pub struct Submission {
 
 #[derive(sqlx::FromRow)]
 struct LessonScope {
+    class_id: Uuid,
     teacher_id: Uuid,
 }
 
@@ -49,13 +50,12 @@ async fn lesson_scope(
     auth: &AuthUser,
     lesson_id: Uuid,
 ) -> AppResult<LessonScope> {
-    let l = sqlx::query_as::<_, LessonScope>(
-        "SELECT teacher_id FROM lessons WHERE id = $1",
-    )
-    .bind(lesson_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound)?;
+    let l =
+        sqlx::query_as::<_, LessonScope>("SELECT class_id, teacher_id FROM lessons WHERE id = $1")
+            .bind(lesson_id)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or(AppError::NotFound)?;
     let allowed = match auth.role {
         Role::Superadmin | Role::Admin => true,
         Role::Teacher => l.teacher_id == auth.id,
@@ -84,7 +84,7 @@ async fn create(
 ) -> AppResult<Json<Assignment>> {
     auth.require(&[Role::Superadmin, Role::Admin, Role::Teacher])?;
     body.validate()?;
-    lesson_scope(&state, &auth, body.lesson_id).await?;
+    let l = lesson_scope(&state, &auth, body.lesson_id).await?;
     let a = sqlx::query_as::<_, Assignment>(sqlx::AssertSqlSafe(format!(
         "INSERT INTO assignments (id, school_id, lesson_id, title, description, due_date, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING {ASSIGN_COLS}"
@@ -98,6 +98,13 @@ async fn create(
     .bind(auth.id)
     .fetch_one(&state.db)
     .await?;
+    crate::notifications::notify_class(
+        &state,
+        l.class_id,
+        "homework",
+        serde_json::json!({ "assignment_id": a.id, "title": a.title, "due_date": a.due_date }),
+    )
+    .await;
     Ok(Json(a))
 }
 
@@ -379,5 +386,8 @@ pub fn router() -> Router<AppState> {
         .route("/{id}", axum::routing::patch(update).delete(delete))
         .route("/{id}/submit", axum::routing::post(submit))
         .route("/{id}/submissions", get(list_submissions))
-        .route("/submissions/{id}/grade", axum::routing::patch(grade_submission))
+        .route(
+            "/submissions/{id}/grade",
+            axum::routing::patch(grade_submission),
+        )
 }

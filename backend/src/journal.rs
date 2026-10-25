@@ -14,11 +14,7 @@ use crate::users::UserView;
 
 /// Validate a grade value against the school's configured scale
 /// (`schools.settings.grading { min, max }`, defaults 1..12).
-pub(crate) async fn validate_grade(
-    state: &AppState,
-    school_id: Uuid,
-    value: f64,
-) -> AppResult<()> {
+pub(crate) async fn validate_grade(state: &AppState, school_id: Uuid, value: f64) -> AppResult<()> {
     let settings: serde_json::Value =
         sqlx::query_scalar("SELECT settings FROM schools WHERE id = $1")
             .bind(school_id)
@@ -58,36 +54,31 @@ async fn can_grade_lesson(state: &AppState, auth: &AuthUser, lesson_id: Uuid) ->
 
 /// Whether the caller may view a student's journal data.
 async fn can_view_student(state: &AppState, auth: &AuthUser, student_id: Uuid) -> AppResult<()> {
-    let ok = match auth.role {
-        Role::Superadmin | Role::Admin => true,
-        Role::Student => auth.id == student_id,
-        Role::Parent => {
-            sqlx::query_scalar(
+    let ok =
+        match auth.role {
+            Role::Superadmin | Role::Admin => true,
+            Role::Student => auth.id == student_id,
+            Role::Parent => sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM parent_links WHERE parent_id=$1 AND student_id=$2)",
             )
             .bind(auth.id)
             .bind(student_id)
             .fetch_one(&state.db)
-            .await?
-        }
-        Role::Teacher => {
-            sqlx::query_scalar(
-                "SELECT EXISTS(
+            .await?,
+            Role::Teacher => {
+                sqlx::query_scalar(
+                    "SELECT EXISTS(
                     SELECT 1 FROM enrollments e
                     JOIN class_subject_teachers cst ON cst.class_id = e.class_id
                     WHERE e.student_id = $1 AND cst.teacher_id = $2)",
-            )
-            .bind(student_id)
-            .bind(auth.id)
-            .fetch_one(&state.db)
-            .await?
-        }
-    };
-    if ok {
-        Ok(())
-    } else {
-        Err(AppError::Forbidden)
-    }
+                )
+                .bind(student_id)
+                .bind(auth.id)
+                .fetch_one(&state.db)
+                .await?
+            }
+        };
+    if ok { Ok(()) } else { Err(AppError::Forbidden) }
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -130,11 +121,10 @@ async fn bulk_grades(
     Json(body): Json<BulkGrades>,
 ) -> AppResult<axum::http::StatusCode> {
     let school_id = can_grade_lesson(&state, &auth, lesson_id).await?;
-    let subject_id: Uuid =
-        sqlx::query_scalar("SELECT subject_id FROM lessons WHERE id = $1")
-            .bind(lesson_id)
-            .fetch_one(&state.db)
-            .await?;
+    let subject_id: Uuid = sqlx::query_scalar("SELECT subject_id FROM lessons WHERE id = $1")
+        .bind(lesson_id)
+        .fetch_one(&state.db)
+        .await?;
     for e in &body.entries {
         validate_grade(&state, school_id, e.value).await?;
         sqlx::query(
@@ -154,6 +144,18 @@ async fn bulk_grades(
         .bind(&e.comment)
         .execute(&state.db)
         .await?;
+        crate::notifications::notify_student_and_parents(
+            &state,
+            e.student_id,
+            "grade",
+            serde_json::json!({
+                "lesson_id": lesson_id,
+                "subject_id": subject_id,
+                "value": e.value,
+                "type": e.grade_type,
+            }),
+        )
+        .await;
     }
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

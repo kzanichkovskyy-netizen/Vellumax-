@@ -58,6 +58,7 @@ CREATE TABLE subjects (
     id UUID PRIMARY KEY,
     school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (school_id, name)
 );
 

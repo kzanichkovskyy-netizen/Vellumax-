@@ -116,20 +116,24 @@ async fn get_one(
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<Subject>> {
     let subject = match auth.role {
-        Role::Superadmin => sqlx::query_as::<_, Subject>(
-            "SELECT id, school_id, name, created_at FROM subjects WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&state.db)
-        .await?,
-        _ => sqlx::query_as::<_, Subject>(
-            "SELECT id, school_id, name, created_at FROM subjects
+        Role::Superadmin => {
+            sqlx::query_as::<_, Subject>(
+                "SELECT id, school_id, name, created_at FROM subjects WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await?
+        }
+        _ => {
+            sqlx::query_as::<_, Subject>(
+                "SELECT id, school_id, name, created_at FROM subjects
              WHERE id = $1 AND school_id = $2",
-        )
-        .bind(id)
-        .bind(auth.school_id)
-        .fetch_optional(&state.db)
-        .await?,
+            )
+            .bind(id)
+            .bind(auth.school_id)
+            .fetch_optional(&state.db)
+            .await?
+        }
     }
     .ok_or(AppError::NotFound)?;
     Ok(Json(subject))

@@ -23,8 +23,7 @@ pub struct ClassView {
     created_at: DateTime<Utc>,
 }
 
-const CLASS_COLS: &str =
-    "id, school_id, name, grade_level, homeroom_teacher_id, year, created_at";
+const CLASS_COLS: &str = "id, school_id, name, grade_level, homeroom_teacher_id, year, created_at";
 const CLASS_COLS_C: &str =
     "c.id, c.school_id, c.name, c.grade_level, c.homeroom_teacher_id, c.year, c.created_at";
 

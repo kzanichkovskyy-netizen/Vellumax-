@@ -120,10 +120,7 @@ async fn timetable(
     Ok(Json(slots))
 }
 
-async fn my_timetable(
-    auth: AuthUser,
-    State(state): State<AppState>,
-) -> AppResult<Json<Vec<Slot>>> {
+async fn my_timetable(auth: AuthUser, State(state): State<AppState>) -> AppResult<Json<Vec<Slot>>> {
     auth.require(&[Role::Teacher])?;
     let slots = sqlx::query_as::<_, Slot>(
         "SELECT id, class_id, subject_id, teacher_id, weekday, lesson_number, room
@@ -322,9 +319,9 @@ async fn create_lesson(
     body.validate()?;
     let teacher_id = match auth.role {
         Role::Teacher => auth.id,
-        Role::Superadmin | Role::Admin => body.teacher_id.ok_or(AppError::BadRequest(
-            "teacher_id is required".into(),
-        ))?,
+        Role::Superadmin | Role::Admin => body
+            .teacher_id
+            .ok_or(AppError::BadRequest("teacher_id is required".into()))?,
         _ => return Err(AppError::Forbidden),
     };
     let lesson = sqlx::query_as::<_, Lesson>(sqlx::AssertSqlSafe(format!(

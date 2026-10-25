@@ -94,9 +94,10 @@ async fn create(
         }
         (Role::Superadmin, Role::Superadmin) => (None, Role::Superadmin),
         (Role::Superadmin, r) => (
-            Some(body.school_id.ok_or(AppError::BadRequest(
-                "school_id is required".into(),
-            ))?),
+            Some(
+                body.school_id
+                    .ok_or(AppError::BadRequest("school_id is required".into()))?,
+            ),
             r,
         ),
         (Role::Admin, Role::Admin) => (auth.school_id, Role::Admin),
@@ -130,15 +131,13 @@ async fn list(
     let scope = auth.scope(q.school_id)?;
 
     let users = match (scope, q.role) {
-        (Some(sid), Some(role)) => {
-            sqlx::query_as::<_, UserView>(sqlx::AssertSqlSafe(format!(
-                "SELECT {USER_COLS} FROM users WHERE school_id = $1 AND role = $2 ORDER BY last_name"
-            )))
-            .bind(sid)
-            .bind(role)
-            .fetch_all(&state.db)
-            .await?
-        }
+        (Some(sid), Some(role)) => sqlx::query_as::<_, UserView>(sqlx::AssertSqlSafe(format!(
+            "SELECT {USER_COLS} FROM users WHERE school_id = $1 AND role = $2 ORDER BY last_name"
+        )))
+        .bind(sid)
+        .bind(role)
+        .fetch_all(&state.db)
+        .await?,
         (Some(sid), None) => {
             sqlx::query_as::<_, UserView>(sqlx::AssertSqlSafe(format!(
                 "SELECT {USER_COLS} FROM users WHERE school_id = $1 ORDER BY last_name"
@@ -244,11 +243,10 @@ async fn update_me(
             .current_password
             .as_deref()
             .ok_or(AppError::BadRequest("current_password is required".into()))?;
-        let hash: String =
-            sqlx::query_scalar("SELECT password_hash FROM users WHERE id = $1")
-                .bind(auth.id)
-                .fetch_one(&state.db)
-                .await?;
+        let hash: String = sqlx::query_scalar("SELECT password_hash FROM users WHERE id = $1")
+            .bind(auth.id)
+            .fetch_one(&state.db)
+            .await?;
         if !verify_password(current, &hash) {
             return Err(AppError::Unauthorized);
         }
@@ -390,9 +388,9 @@ pub fn router() -> Router<AppState> {
         .route("/me", axum::routing::patch(update_me))
         .route("/me/children", get(my_children))
         .route("/{id}", get(get_one).patch(update).delete(deactivate))
+        .route("/{id}/children", get(list_children).post(link_child))
         .route(
-            "/{id}/children",
-            get(list_children).post(link_child),
+            "/{id}/children/{student_id}",
+            axum::routing::delete(unlink_child),
         )
-        .route("/{id}/children/{student_id}", axum::routing::delete(unlink_child))
 }

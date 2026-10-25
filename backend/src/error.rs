@@ -33,9 +33,7 @@ impl IntoResponse for AppError {
             AppError::Conflict(m) => (StatusCode::CONFLICT, m),
             AppError::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
             AppError::Validation(e) => (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()),
-            AppError::Db(sqlx::Error::RowNotFound) => {
-                (StatusCode::NOT_FOUND, "not found".into())
-            }
+            AppError::Db(sqlx::Error::RowNotFound) => (StatusCode::NOT_FOUND, "not found".into()),
             AppError::Db(e) => {
                 if let sqlx::Error::Database(dbe) = &e {
                     match dbe.code().as_deref() {
@@ -57,10 +55,7 @@ impl IntoResponse for AppError {
                     }
                 }
                 tracing::error!(?e, "database error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "internal error".into(),
-                )
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
             }
         };
         (status, Json(serde_json::json!({ "error": msg }))).into_response()
