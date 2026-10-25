@@ -4,6 +4,7 @@ pub struct Config {
     pub jwt_secret: String,
     pub port: u16,
     pub upload_dir: String,
+    pub static_dir: String,
     pub access_token_ttl_secs: i64,
     pub refresh_token_ttl_days: i64,
 }
@@ -20,6 +21,7 @@ impl Config {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(3000),
             upload_dir: std::env::var("UPLOAD_DIR").unwrap_or_else(|_| "uploads".into()),
+            static_dir: std::env::var("STATIC_DIR").unwrap_or_else(|_| "../site".into()),
             access_token_ttl_secs: std::env::var("ACCESS_TOKEN_TTL_SECS")
                 .ok()
                 .and_then(|v| v.parse().ok())

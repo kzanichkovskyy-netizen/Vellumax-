@@ -73,9 +73,11 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/leads", leads::router())
         .nest("/analytics", analytics::router());
 
+    let static_dir = state.config.static_dir.clone();
     Router::new()
         .nest("/api/v1", api)
         .route("/health", axum::routing::get(|| async { "ok" }))
+        .fallback_service(tower_http::services::ServeDir::new(static_dir))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())

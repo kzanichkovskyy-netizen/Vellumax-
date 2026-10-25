@@ -174,6 +174,50 @@ struct LoginRequest {
     password: String,
 }
 
+#[derive(Deserialize, Validate)]
+struct RegisterRequest {
+    #[validate(length(min = 1, max = 200))]
+    school_name: String,
+    #[validate(email)]
+    email: String,
+    #[validate(length(min = 8))]
+    password: String,
+    #[validate(length(min = 1))]
+    first_name: String,
+    #[validate(length(min = 1))]
+    last_name: String,
+}
+
+/// Self-service onboarding: creates a school + its admin account.
+async fn register(
+    State(state): State<AppState>,
+    Json(body): Json<RegisterRequest>,
+) -> AppResult<Json<TokenResponse>> {
+    body.validate()?;
+    let mut tx = state.db.begin().await?;
+    let school_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO schools (id, name) VALUES ($1, $2)")
+        .bind(school_id)
+        .bind(&body.school_name)
+        .execute(&mut *tx)
+        .await?;
+    let user = sqlx::query_as::<_, UserRow>(
+        "INSERT INTO users (id, school_id, email, password_hash, role, first_name, last_name)
+         VALUES ($1,$2,$3,$4,'admin',$5,$6)
+         RETURNING id, school_id, password_hash, role, is_active",
+    )
+    .bind(Uuid::new_v4())
+    .bind(school_id)
+    .bind(&body.email)
+    .bind(hash_password(&body.password)?)
+    .bind(&body.first_name)
+    .bind(&body.last_name)
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(issue_tokens(&state, &user).await?))
+}
+
 async fn login(
     State(state): State<AppState>,
     Json(body): Json<LoginRequest>,
@@ -264,6 +308,7 @@ async fn me(auth: AuthUser, State(state): State<AppState>) -> AppResult<Json<MeR
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/login", post(login))
+        .route("/register", post(register))
         .route("/refresh", post(refresh))
         .route("/logout", post(logout))
         .route("/me", get(me))
