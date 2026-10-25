@@ -1,0 +1,20 @@
+{
+    "name": "The White House",
+    "short_name": "WhiteHouse.gov",
+    "start_url": "https://www.whitehouse.gov/",
+    "icons": [
+        {
+            "src": "/wp-content/images/favicon-196x196.png",
+            "sizes": "196x196",
+            "type": "image/png"
+        },
+        {
+            "src": "/wp-content/images/favicon.png",
+            "sizes": "1000x1000",
+            "type": "image/png"
+        }
+    ],
+    "theme_color": "#ffffff",
+    "background_color": "#0D132D",
+    "display": "standalone"
+}
